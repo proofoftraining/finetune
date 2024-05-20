@@ -34,6 +34,7 @@ Features:
   - [Mac](#mac)
   - [Google Colab](#google-colab)
   - [Launching on public clouds via SkyPilot](#launching-on-public-clouds-via-skypilot)
+  - [Launching on public clouds via dstack](#launching-on-public-clouds-via-dstack)
 - [Dataset](#dataset)
 - [Config](#config)
   - [Train](#train)
@@ -44,6 +45,7 @@ Features:
 - Advanced Topics
   - [Multipack](./docs/multipack.qmd)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
   - [RLHF & DPO](./docs/rlhf.qmd)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  - [Dataset Pre-Processing](./docs/dataset_preprocessing.qmd)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 - [Common Errors](#common-errors-)
   - [Tokenization Mismatch b/w Training & Inference](#tokenization-mismatch-bw-inference--training)
 - [Debugging Axolotl](#debugging-axolotl)
@@ -81,6 +83,7 @@ Features:
 | llama       | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅            |
 | Mistral     | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅            |
 | Mixtral-MoE | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
+| Mixtral8X22 | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
 | Pythia      | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
 | cerebras    | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
 | btlm        | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
@@ -290,6 +293,42 @@ HF_TOKEN=xx sky launch axolotl.yaml --env HF_TOKEN
 HF_TOKEN=xx BUCKET=<unique-name> sky spot launch axolotl-spot.yaml --env HF_TOKEN --env BUCKET
 ```
 
+#### Launching on public clouds via dstack
+To launch on GPU instance (both on-demand and spot instances) on public clouds (GCP, AWS, Azure, Lambda Labs, TensorDock, Vast.ai, and CUDO), you can use [dstack](https://dstack.ai/).
+
+Write a job description in YAML as below:
+
+```yaml
+# dstack.yaml
+type: task
+
+image: winglian/axolotl-cloud:main-20240429-py3.11-cu121-2.2.2
+
+env:
+  - HUGGING_FACE_HUB_TOKEN
+  - WANDB_API_KEY
+
+commands:
+  - accelerate launch -m axolotl.cli.train config.yaml
+
+ports:
+  - 6006
+
+resources:
+  gpu:
+    memory: 24GB..
+    count: 2
+```
+
+then, simply run the job with `dstack run` command. Append `--spot` option if you want spot instance. `dstack run` command will show you the instance with cheapest price across multi cloud services:
+
+```bash
+pip install dstack
+HUGGING_FACE_HUB_TOKEN=xxx WANDB_API_KEY=xxx dstack run . -f dstack.yaml # --spot
+```
+
+For further and fine-grained use cases, please refer to the official [dstack documents](https://dstack.ai/docs/) and the detailed description of [axolotl example](https://github.com/dstackai/dstack/tree/master/examples/fine-tuning/axolotl) on the official repository.
+
 ### Dataset
 
 Axolotl supports a variety of dataset formats.  It is recommended to use a JSONL.  The schema of the JSONL depends upon the task and the prompt template you wish to use.  Instead of a JSONL, you can also use a HuggingFace dataset with columns for each JSONL field.
@@ -425,7 +464,7 @@ deepspeed: deepspeed_configs/zero1.json
 ```
 
 ```shell
-accelerate launch -m axolotl.cli.train examples/llama-2/config.py --deepspeed deepspeed_configs/zero1.json
+accelerate launch -m axolotl.cli.train examples/llama-2/config.yml --deepspeed deepspeed_configs/zero1.json
 ```
 
 ##### FSDP

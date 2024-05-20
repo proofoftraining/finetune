@@ -12,10 +12,12 @@ from axolotl.prompt_strategies.sharegpt import (
     GlaiveShareGPTPromptTokenizingStrategy,
     SimpleShareGPTPromptTokenizingStrategy,
     register_chatml_template,
+    register_llama3_template,
 )
 from axolotl.prompters import ShareGPTPrompterV2
 
 register_chatml_template()
+register_llama3_template()
 
 
 @pytest.fixture(name="sharegpt_dataset")
@@ -96,7 +98,9 @@ def fixture_multi_role_dataset():
 
 @pytest.fixture(name="tokenizer")
 def fixture_tokenizer():
-    tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
+    tokenizer = AutoTokenizer.from_pretrained(
+        "casperhansen/mistral-7b-instruct-v0.1-awq"
+    )
     tokenizer.add_special_tokens(
         {
             "eos_token": AddedToken(
@@ -113,7 +117,53 @@ def fixture_tokenizer():
     return tokenizer
 
 
-class TestSharegpt:
+@pytest.fixture(name="llama3_tokenizer")
+def fixture_llama3_tokenizer():
+    tokenizer = AutoTokenizer.from_pretrained("NousResearch/Meta-Llama-3-8B")
+    tokenizer.eos_token = "<|eot_id|>"
+
+    return tokenizer
+
+
+class TestSharegptLlama3:
+    """Test class for ShareGPT style datasets with llama-3 prompts"""
+
+    def test_tokenization(self, sharegpt_dataset, llama3_tokenizer):
+        strategy = SimpleShareGPTPromptTokenizingStrategy(
+            ShareGPTPrompterV2(
+                conversation="llama3",
+                role_key_model=None,
+                role_key_human=None,
+            ),
+            llama3_tokenizer,
+            False,  # train_on_inputs
+            2048,  # sequence_len
+        )
+
+        dataset_wrapper = TokenizedPromptDataset(
+            strategy, sharegpt_dataset, process_count=1
+        )
+
+        input_ids = dataset_wrapper[0]["input_ids"]
+
+        # fmt: off
+        assert input_ids == [
+            128000,  # bos
+            128006, 9125, 128007,  # system header
+            271, 31724, 128009,  # sys prompt, eot
+            128006, 882, 128007,  # user header
+            271, 15339, 128009,  # user prompt eot
+            128006, 78191, 128007,  # assistant header
+            271, 15339, 128009,   # assistant response eot
+            128006, 882, 128007,
+            271, 19045, 29474, 128009,
+            128006, 78191, 128007,
+            271, 19045, 29474, 128009,
+        ]
+        # fmt: on
+
+
+class TestSharegptChatML:
     """
     Test class for sharegpt prompter
     """

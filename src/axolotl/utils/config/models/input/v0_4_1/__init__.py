@@ -143,6 +143,7 @@ class ChatTemplate(str, Enum):
     inst = "inst"  # pylint: disable=invalid-name
     gemma = "gemma"  # pylint: disable=invalid-name
     cohere = "cohere"  # pylint: disable=invalid-name
+    llama3 = "llama3"  # pylint: disable=invalid-name
 
 
 class LoftQConfig(BaseModel):
@@ -259,6 +260,7 @@ class ModelInputConfig(BaseModel):
 
     base_model: str
     base_model_config: Optional[str] = None
+    cls_model_config: Optional[str] = None
     tokenizer_config: Optional[str] = None
     tokenizer_use_fast: Optional[bool] = None
     tokenizer_legacy: Optional[bool] = None
@@ -408,6 +410,17 @@ class WandbConfig(BaseModel):
         return data
 
 
+class GradioConfig(BaseModel):
+    """Gradio configuration subset"""
+
+    gradio_title: Optional[str] = None
+    gradio_share: Optional[bool] = None
+    gradio_server_name: Optional[str] = None
+    gradio_server_port: Optional[int] = None
+    gradio_max_new_tokens: Optional[int] = None
+    gradio_temperature: Optional[float] = None
+
+
 # pylint: disable=too-many-public-methods,too-many-ancestors
 class AxolotlInputConfig(
     ModelInputConfig,
@@ -418,6 +431,7 @@ class AxolotlInputConfig(
     WandbConfig,
     MLFlowConfig,
     LISAConfig,
+    GradioConfig,
     RemappedParameters,
     DeprecatedParameters,
     BaseModel,
@@ -478,6 +492,7 @@ class AxolotlInputConfig(
     eval_causal_lm_metrics: Optional[List[str]] = None
     do_bench_eval: Optional[bool] = None
     bench_dataset: Optional[str] = None
+    bench_split: Optional[str] = None
     metric_for_best_model: Optional[str] = None
     greater_is_better: Optional[bool] = None
 
@@ -493,15 +508,28 @@ class AxolotlInputConfig(
 
     # torch_dtype: Optional[torch.dtype]
 
-    gradient_checkpointing: Optional[bool] = Field(default=False)
+    gradient_checkpointing: Optional[Union[Literal["unsloth"], bool]] = Field(
+        default=False
+    )
     gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None
 
     unfrozen_parameters: Optional[List[str]] = None
 
     sequence_len: int = Field(default=512)
+    min_sample_len: Optional[int] = None
+    max_prompt_len: int = Field(
+        default=512, metadata={"help": "maximum prompt length for RL training"}
+    )
     sample_packing: Optional[bool] = None
     eval_sample_packing: Optional[bool] = None
     pad_to_sequence_len: Optional[bool] = None
+    curriculum_sampling: Optional[bool] = None
+
+    # for PoSE context length extension
+    use_pose: Optional[bool] = None
+    pose_split_on_token_ids: Optional[List[int]] = None
+    pose_max_context_len: Optional[int] = None
+    pose_num_chunks: Optional[int] = None
 
     pretrain_multipack_buffer_size: Optional[int] = 10_000
     pretrain_multipack_attn: Optional[bool] = Field(
@@ -520,6 +548,11 @@ class AxolotlInputConfig(
     flash_attn_fuse_qkv: Optional[bool] = None
     flash_attn_fuse_mlp: Optional[bool] = None
     flash_optimum: Optional[bool] = None
+
+    unsloth_cross_entropy_loss: Optional[bool] = None
+    unsloth_lora_mlp: Optional[bool] = None
+    unsloth_lora_qkv: Optional[bool] = None
+    unsloth_lora_o: Optional[bool] = None
 
     deepspeed: Optional[Union[str, Dict[str, Any]]] = None
     fsdp: Optional[List[str]] = None
@@ -546,6 +579,7 @@ class AxolotlInputConfig(
     logging_steps: Optional[int] = None
     early_stopping_patience: Optional[int] = None
     load_best_model_at_end: Optional[bool] = False
+    save_only_model: Optional[bool] = False
 
     neftune_noise_alpha: Optional[float] = None
 
@@ -768,11 +802,11 @@ class AxolotlInputConfig(
     @model_validator(mode="before")
     @classmethod
     def check_push_save(cls, data):
-        if data.get("hub_model_id") and not (
-            data.get("save_steps") or data.get("saves_per_epoch")
+        if data.get("hub_model_id") and (
+            data.get("save_strategy") not in ["steps", "epoch", None]
         ):
             LOG.warning(
-                "hub_model_id is set without any models being saved. To save a model, set either save_steps or saves_per_epoch."
+                "hub_model_id is set without any models being saved. To save a model, set save_strategy."
             )
         return data
 
@@ -971,9 +1005,16 @@ class AxolotlInputConfig(
 
     @model_validator(mode="before")
     @classmethod
-    def check_fsdp_w_8bit_optimizer(cls, data):
-        if data.get("fsdp") and "bnb" in data.get("optimizer", ""):
-            raise ValueError(f"FSDP not compatible with {data.get('optimizer')}")
+    def check_fsdp_offload_w_8bit_optimizer(cls, data):
+        if (
+            data.get("fsdp")
+            and "8bit" in data.get("optimizer", "")
+            and data.get("fsdp_config")
+            and data["fsdp_config"].get("fsdp_offload_params")
+        ):
+            raise ValueError(
+                f"FSDP Offload not compatible with {data.get('optimizer')}"
+            )
         return data
 
     @model_validator(mode="before")
